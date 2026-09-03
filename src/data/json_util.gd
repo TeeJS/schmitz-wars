@@ -131,13 +131,15 @@ static func enum_name(enum_dict: Dictionary, value: int) -> String:
 ## explicit from_dict functions so their nullability is visible.
 ##   enum_fields: var name -> enum Dictionary
 ##   ref_fields:  var name -> Callable(String) -> Object  (the C# JsonConverters)
-static func hydrate(obj: Object, d: Dictionary, enum_fields: Dictionary = {}, ref_fields: Dictionary = {}) -> void:
+static func hydrate(obj: Object, d: Dictionary, enum_fields: Dictionary = {}, ref_fields: Dictionary = {}, skip: Array = []) -> void:
 	var script: Script = obj.get_script()
 	while script != null:
 		for p in script.get_script_property_list():
 			if not (p.usage & PROPERTY_USAGE_SCRIPT_VARIABLE):
 				continue
 			var name: String = p.name
+			if skip.has(name) or name.begins_with("_"):
+				continue
 			var v: Variant = get_ci(d, name)
 			if v == null:
 				continue
@@ -156,7 +158,22 @@ static func hydrate(obj: Object, d: Dictionary, enum_fields: Dictionary = {}, re
 					TYPE_STRING:
 						obj.set(name, str(v))
 					TYPE_ARRAY:
-						obj.set(name, Array(v))
+						# Keep the declared element type: an Array[int] var cannot take
+						# an untyped Array, and JSON numbers arrive as float.
+						var cur: Variant = obj.get(name)
+						if cur is Array and cur.is_typed():
+							var out: Array = cur.duplicate()
+							out.clear()
+							var elem_type: int = cur.get_typed_builtin()
+							for x in v:
+								match elem_type:
+									TYPE_INT: out.append(int(x))
+									TYPE_FLOAT: out.append(float(x))
+									TYPE_STRING: out.append(str(x))
+									_: out.append(x)
+							obj.set(name, out)
+						else:
+							obj.set(name, Array(v))
 					_:
 						pass   # objects and nulls: the source has no JSON-fed ones here
 		script = script.get_base_script()
