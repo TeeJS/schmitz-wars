@@ -1,0 +1,4 @@
+{
+  "_comment": "Which faction pack the engine loads. Change this line to change the entire setting - no code edit, no rebuild.",
+  "pack": "star-wars-rebellion"
+}

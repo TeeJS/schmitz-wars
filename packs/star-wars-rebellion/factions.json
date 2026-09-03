@@ -1,0 +1,60 @@
+{
+  "factions": [
+    {
+      "id": "alliance",
+      "display_name": "Rebel Alliance",
+      "color": "#ff0000",
+      "loyalty_label": "Loyalty to the Alliance",
+      "hq": {
+        "kind": "hidden",
+        "placement": "random_rim",
+        "movable": true
+      },
+      "occupation_support_policy": "occupation_penalty",
+      "starting_planets": [
+        {
+          "planet": "Yavin",
+          "support": 100,
+          "explored": true,
+          "garrison": "CMUNYVTB.DAT"
+        }
+      ],
+      "seed": {
+        "hq_facilities": "FACLHQTB.DAT",
+        "hq_garrison": "CMUNHQTB.DAT",
+        "fleet": "CMUNAFTB.DAT",
+        "procedural_fleet": "CMUNALTB.DAT"
+      },
+      "victory": {
+        "capture_characters": [
+          "Emperor Palpatine",
+          "Darth Vader"
+        ]
+      }
+    },
+    {
+      "id": "empire",
+      "display_name": "Galactic Empire",
+      "color": "#00ff00",
+      "loyalty_label": "Loyalty to the Empire",
+      "hq": {
+        "kind": "fixed",
+        "planet": "Coruscant"
+      },
+      "occupation_support_policy": "garrison_bonus",
+      "starting_planets": [],
+      "seed": {
+        "hq_facilities": "FACLCRTB.DAT",
+        "hq_garrison": "CMUNCRTB.DAT",
+        "fleet": "CMUNEFTB.DAT",
+        "procedural_fleet": "CMUNEMTB.DAT"
+      },
+      "victory": {
+        "capture_characters": [
+          "Luke Skywalker",
+          "Mon Mothma"
+        ]
+      }
+    }
+  ]
+}

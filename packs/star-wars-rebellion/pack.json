@@ -1,0 +1,16 @@
+{
+  "id": "star-wars-rebellion",
+  "display_name": "Star Wars: Rebellion",
+  "schema_version": 1,
+  "faction_count": 2,
+  "neutral": {
+    "id": "neutral",
+    "display_name": "Neutral",
+    "color": "#5499ff"
+  },
+  "unexplored_color": "#cccccc",
+  "setup": {
+    "difficulty_default": "medium",
+    "galaxy_sizes": ["standard", "large", "huge"]
+  }
+}

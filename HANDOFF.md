@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-02 (v2 — amended after review room AM-4A9S3YYV7KGYHBLPJNGC52XD8B)
 **Author:** Lord Vader (chair). Reviewed by C3PO (sections 2, 4, 6-UI, autoload policy) and R2D2 (section 7 arithmetic). Approved by TeeJ.
-**Status:** Steps 0 and 0b complete (2026-09-03). Step 1A in progress. TeeJ's standing order: proceed independently and commit until the port is complete.
+**Status:** Steps 0, 0b and 1A complete (2026-09-03). Step 1B in progress. TeeJ's standing order: proceed independently and commit until the port is complete.
 
 **v2 changes:** JSON size corrected; Random audit corrected (11 unseeded sites, not 1); construct audit expanded; plan gains steps 0, 0b, 1A, 1B; autoload policy adopted; estimate limited to steps 0–1B; CLAUDE.md carried over whole; work split recorded (§10).
 
@@ -168,6 +168,20 @@ more touch points than v1 counted — plus the determinism work in 4c.
 reproduce the C# stream. Same-seed parity (risk 4, step 2 gate) requires a
 hand-written portable PRNG (xorshift or PCG) on **both** sides — see step 0b.
 
+### Translation rules learned in 1A (binding for steps 2–3)
+
+| C# | GDScript | Why |
+|---|---|---|
+| member names | **the same PascalCase names** | 25k lines reference them; the parity dump compares by name. GDScript style is not the goal, fidelity is. |
+| `string` null | `""` — and `s != null` becomes `not s.is_empty()` | GDScript `String` cannot be null. The source only ever tests strings with `IsNullOrWhiteSpace`, `??` or `!= null` (DayZeroGenerator.cs:257, :262), so `""` is safe. `tools/compare_json.py` treats C# null ≡ GD `""` for strings only. |
+| `int?` | `Variant`, null preserved | risk 8; never coalesce in the hydrator. |
+| `List<T>` with `= new()` / without | `[]` / `null` (`Variant`) | mirror the C# initialiser exactly. |
+| a member named `Color` | `ColorHex` | GDScript cannot name a member after a builtin type; the source was renamed to match (`[JsonPropertyName("color")]` keeps the pack key). |
+| `enum` | `Enums.X`, declaration order preserved | several are ordinal (MissionType joins MISSNSD by position). |
+| `Faction` reference | `Faction` object from `FactionRegistry.ById` | identity by reference, as in C#. |
+| JSON numbers | `int()` at every int site | `JSON.parse` yields float. |
+| `--headless -s script.gd` on a fresh checkout | run `--import` first | `class_name` lookup needs `.godot/global_script_class_cache.cfg`. |
+
 ### DTO types deserialised (each needs a hydration function)
 
 `List<Character>` (×2), `List<UnitStatRule>`, `List<SideRuleData>`, `List<SectorJsonData>`,
@@ -194,7 +208,7 @@ hand-written portable PRNG (xorshift or PCG) on **both** sides — see step 0b.
 |---|---|---|---|
 | **0** | Copy `data/*.json`, `GAMEPLAY.md`, `manual/ILLUSTRATIONS.md` from the source into this repo. Each copied doc gets a first line `<!-- last synced from sol-conflict-revolution commit <sha> -->`. Copy the source `CLAUDE.md` whole and edit only *Repo facts* (§9). | this repo | Files present, sync lines present. |
 | **0b** ✅ | **Done** — source commit `c5bded4` on `tschmitz-dev`. Gate passed: `tools/replay-check.ps1`, seed 12345, 100 days, identical snapshots and 101 identical day hashes, 7 s. Proof files in `tests/fixtures/`. **Make the source deterministic.** One seeded, portable PRNG (xorshift or PCG — the same algorithm the GDScript side will implement) routed through all 11 sites in 4c. Add a day-zero snapshot serialiser (JSON). Verify same-seed replay in C# alone: two runs, identical snapshot, identical 100-day log. | **source repo, `tschmitz-dev`** — needs TeeJ's separate go-ahead | Same-seed replay identical in C#. |
-| **1A** | Hydrate all 14 DTOs from `data/*.json` in GDScript. Correctness gate: every field, including nullable-vs-0, matches what the C# side loads. | this repo | Field-level parity report, zero diffs. |
+| **1A** ✅ | **Done.** `tools/dto-parity.ps1`: the source's `--dto-dump` (backend/DtoDump.cs, commit below) and `tests/dto_parity.gd` emit the same canonical form for all 18 datasets (14 DTO types + pack manifest/factions + the editor's MilitaryUnit + both uprising tables); `tools/compare_json.py` diffs them field by field. **Zero differences** over 200 planets, 213 rules, 57 units, 60 characters, 35 side-lottery rows, 25 missions, 20 tables, 11 logistics files. Hydrate all 14 DTOs from `data/*.json` in GDScript. Correctness gate: every field, including nullable-vs-0, matches what the C# side loads. | this repo | Field-level parity report, zero diffs. |
 | **1B** | Hydrate the step-0b snapshot. Run `Planet.ProcessDailyTick` + `Mission.ProcessDay` for 100 days with the other 14 ProcessDay subsystems stubbed to no-ops. Record warm-up separately, then mean / p50 / p95 / max per-day time (and allocations if the profiler exposes them). **Export to Web** and repeat in a browser. | this repo | **Go / no-go on tick budget.** |
 | 2 | Translate remaining `backend/`, subsystem by subsystem, largest-risk first. | this repo | Same-seed parity vs C# passes per subsystem. |
 | 3 | Translate `frontend/` (18 scenes), window by window, **each checked against the manual passage that specifies it**. Owner: C3PO. | this repo | Manual-element checklist per window. |
