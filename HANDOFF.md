@@ -263,5 +263,6 @@ rule 0 to one line despite calling it verbatim.
 |---|---|---|
 | Lord Vader | remainder | backend translation, data layer, step 0b, amendments to this document, sync lines and checklist status table |
 | C3PO | ~25% | all UI: step 3 windows vs manual passages, manual-element checklists, autoload mapping |
+| Wicket | as needed (rate-limited) | bounded, latency-tolerant verification and research off the critical path: PRNG choice (§8), sync checks, parity-report review |
 
-C3PO reviews Lord Vader's output. R2D2 was removed from the project on 2026-09-02.
+C3PO and Wicket review Lord Vader's output. R2D2 was removed from the project on 2026-09-02.
