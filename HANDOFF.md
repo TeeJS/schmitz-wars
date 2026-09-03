@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-02 (v2 — amended after review room AM-4A9S3YYV7KGYHBLPJNGC52XD8B)
 **Author:** Lord Vader (chair). Reviewed by C3PO (sections 2, 4, 6-UI, autoload policy) and R2D2 (section 7 arithmetic). Approved by TeeJ.
-**Status:** Steps 0, 0b and 1A complete (2026-09-03). Step 1B in progress. TeeJ's standing order: proceed independently and commit until the port is complete.
+**Status:** Steps 0, 0b, 1A complete; 1B built and measured on desktop (2026-09-03) — the browser measurement waits on the non-Mono Godot download. Step 2 next. TeeJ's standing order: proceed independently and commit until the port is complete.
 
 **v2 changes:** JSON size corrected; Random audit corrected (11 unseeded sites, not 1); construct audit expanded; plan gains steps 0, 0b, 1A, 1B; autoload policy adopted; estimate limited to steps 0–1B; CLAUDE.md carried over whole; work split recorded (§10).
 
@@ -209,7 +209,7 @@ hand-written portable PRNG (xorshift or PCG) on **both** sides — see step 0b.
 | **0** | Copy `data/*.json`, `GAMEPLAY.md`, `manual/ILLUSTRATIONS.md` from the source into this repo. Each copied doc gets a first line `<!-- last synced from sol-conflict-revolution commit <sha> -->`. Copy the source `CLAUDE.md` whole and edit only *Repo facts* (§9). | this repo | Files present, sync lines present. |
 | **0b** ✅ | **Done** — source commit `c5bded4` on `tschmitz-dev`. Gate passed: `tools/replay-check.ps1`, seed 12345, 100 days, identical snapshots and 101 identical day hashes, 7 s. Proof files in `tests/fixtures/`. **Make the source deterministic.** One seeded, portable PRNG (xorshift or PCG — the same algorithm the GDScript side will implement) routed through all 11 sites in 4c. Add a day-zero snapshot serialiser (JSON). Verify same-seed replay in C# alone: two runs, identical snapshot, identical 100-day log. | **source repo, `tschmitz-dev`** — needs TeeJ's separate go-ahead | Same-seed replay identical in C#. |
 | **1A** ✅ | **Done.** `tools/dto-parity.ps1`: the source's `--dto-dump` (backend/DtoDump.cs, commit below) and `tests/dto_parity.gd` emit the same canonical form for all 18 datasets (14 DTO types + pack manifest/factions + the editor's MilitaryUnit + both uprising tables); `tools/compare_json.py` diffs them field by field. **Zero differences** over 200 planets, 213 rules, 57 units, 60 characters, 35 side-lottery rows, 25 missions, 20 tables, 11 logistics files. Hydrate all 14 DTOs from `data/*.json` in GDScript. Correctness gate: every field, including nullable-vs-0, matches what the C# side loads. | this repo | Field-level parity report, zero diffs. |
-| **1B** | Hydrate the step-0b snapshot. Run `Planet.ProcessDailyTick` + `Mission.ProcessDay` for 100 days with the other 14 ProcessDay subsystems stubbed to no-ops. Record warm-up separately, then mean / p50 / p95 / max per-day time (and allocations if the profiler exposes them). **Export to Web** and repeat in a browser. | this repo | **Go / no-go on tick budget.** |
+| **1B** ◐ | **Built; desktop numbers in.** `tests/bench_1b.gd` (headless) and `Main.tscn` (C3PO, frame-spread, for the browser) hydrate the snapshot and run `StrategicTickManager.AdvanceDay` with Planet, Economy, Mission, Research live and 13 subsystems stubbed (`src/game/stubs.gd`). **Hydration gate: the day-1 GameSignature text is character-for-character identical to the source's** (`tools/diff_replay_text.py`). Desktop, 150 planets, 60 characters, 100 days: steady mean **2.0 ms/day** (p95 5.0, max 5.6) idle; **3.0 ms/day** (p95 9.6, max 14.1) with six espionage missions running. The source's full C# day, all subsystems, is ~35 ms (7 s / 200 days). Days 2+ diverge from the source only where the stubbed AI acts — that is step 2's parity target. **Browser run pending** (needs the non-Mono editor + web templates). Hydrate the step-0b snapshot. Run `Planet.ProcessDailyTick` + `Mission.ProcessDay` for 100 days with the other 14 ProcessDay subsystems stubbed to no-ops. Record warm-up separately, then mean / p50 / p95 / max per-day time (and allocations if the profiler exposes them). **Export to Web** and repeat in a browser. | this repo | **Go / no-go on tick budget.** |
 | 2 | Translate remaining `backend/`, subsystem by subsystem, largest-risk first. | this repo | Same-seed parity vs C# passes per subsystem. |
 | 3 | Translate `frontend/` (18 scenes), window by window, **each checked against the manual passage that specifies it**. Owner: C3PO. | this repo | Manual-element checklist per window. |
 | 4 | Web export of the full game; re-profile. | this repo | Playable in browser. |
@@ -245,12 +245,14 @@ Size only what can be sized now; re-size the rest after 1B's numbers exist.
 | 0 | hours |
 | 0b (source repo) | ~~2–3 days~~ done in one session |
 | 1A | 2–3 days |
-| 1B | 3–4 days |
+| 1B | ~~3–4 days~~ built in one session; browser measurement pending |
 | 2, 3, 4 | **not sized until 1B passes** |
 
 ## 8. Unresolved
 
 - Actual GDScript/WASM tick cost — settled by 1B.
+- **1B found two bugs in the source's `Snapshot.cs`** (both fixed, commits `8202768`, `48eadb7`): planets under a sector were written as bare names, and dictionary properties (`Planet.Support`) came out null. The 0b replay hash was unaffected (it goes through GameSignature), so the determinism proof stands; the snapshot fixture was regenerated.
+- The web export needs **Godot 4.7.1 non-Mono** plus its **export templates** — not downloaded as of 2026-09-03; a download needs TeeJ's explicit yes.
 - ~~Portable PRNG choice~~ **Decided (Wicket's research + mask fix): canonical xorshift64\* on signed 64-bit, the logical shift reproduced as `(x >> 7) & 0x01FFFFFFFFFFFFFF`.** C# reference: source `backend/Prng.cs`. GDScript must match `tests/fixtures/prng-12345.txt` (first 1,000 raw outputs from seed 12345) byte for byte.
 - 0b found two nondeterminism sources beyond the eleven Random sites: a null-rng Dagobah roll, and fleet names built from a Guid. Both fixed at the source. Fleet serials are now per-game counters.
 - Hosting/headers for the web build (only matters if threads are ever added).
