@@ -1,8 +1,10 @@
 # HANDOFF — Porting sol-conflict-revolution to GDScript
 
-**Date:** 2026-09-02
-**Author:** Lord Vader (chair of the port-evaluation room)
+**Date:** 2026-09-02 (v2 — amended after review room AM-4A9S3YYV7KGYHBLPJNGC52XD8B)
+**Author:** Lord Vader (chair). Reviewed by C3PO (sections 2, 4, 6-UI, autoload policy) and R2D2 (section 7 arithmetic). Approved by TeeJ.
 **Status:** Evaluation complete. Decision taken. **No code written yet.**
+
+**v2 changes:** JSON size corrected; Random audit corrected (11 unseeded sites, not 1); construct audit expanded; plan gains steps 0, 0b, 1A, 1B; autoload policy adopted; estimate limited to steps 0–1B; CLAUDE.md carried over whole; work split recorded (§10).
 
 ---
 
@@ -15,31 +17,30 @@ Port **sol-conflict-revolution** (Godot 4.7.1 mono, C#/.NET 8) to **GDScript** i
 |---|---|
 | Is the port feasible? | **Yes.** No hard .NET blockers found (see §4). |
 | Is it necessary? | **Yes, for a web build.** Godot 4 C# has no web export (see §2). |
-| Approach | Straight translation. Same architecture, same rules, same 2-side day-tick model. |
-| What must be preserved | **Manual fidelity.** The source repo's CLAUDE.md rule 0 ("the rule AND the implementation both match the manual") carries over verbatim. |
+| Approach | Preserve subsystem boundaries, rules, and the 2-side day-tick model; replace static global ownership with the explicit session policy in §6. |
+| What must be preserved | **Manual fidelity.** The source repo's CLAUDE.md is copied whole (§9). |
 
-## 2. Why GDScript — the web-export constraint (Confirmed)
+## 2. Why GDScript — the web-export constraint (Confirmed, re-verified by C3PO 2026-09-02)
 
 The driver is a **browser-playable build**.
 
 > "Projects written in C# using Godot 4 currently cannot be exported to the web."
-> — Godot docs, *Exporting for Web* (stable), verified 2026-09-02
+> — Godot docs, *Exporting for Web*, version-pinned 4.7 page and latest, checked 2026-09-02
 
 Root cause: the .NET WASM runtime must be the main module and cannot be
 dynamically linked into Godot's WASM. A community fork
 (`ComplexRobot/godot-dotnet-web-export`) patches it but lacks GDExtension support
-and has globalization gaps — not a shipping foundation. Forum threads from
-July 2026 confirm nothing changed for 4.7.
+and has globalization gaps — not a shipping foundation.
 
 The only alternatives to GDScript are GDExtension C++ (far more work) or Godot 3.
 
 Sources:
-- https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html
+- https://docs.godotengine.org/en/4.7/tutorials/export/exporting_for_web.html
 - https://godotengine.org/article/platform-state-in-csharp-for-godot-4-2/
 - https://github.com/godotengine/godot/issues/70796
 - https://github.com/ComplexRobot/godot-dotnet-web-export
 
-## 3. Source inventory — `D:\Github\sol-conflict-revolution` @ `11c1b36`
+## 3. Source inventory — `D:\Github\sol-conflict-revolution` @ `11c1b36` (spot-checked v2)
 
 Godot 4.7.1 mono, `net8.0`, **zero NuGet packages** beyond `Godot.NET.Sdk`.
 
@@ -50,8 +51,8 @@ Godot 4.7.1 mono, `net8.0`, **zero NuGet packages** beyond `Godot.NET.Sdk`.
 | `backend/` — game logic, no Godot UI | 50 | 16,038 |
 | `frontend/` — windows, galaxy map, GID bar | 30 | 9,134 |
 | root — `GameManager.cs`, `Menu.cs` | 2 | 647 |
-| `.tscn` scenes | 18 | — |
-| `data/*.json` (from Python parsers of the original `.DAT` tables) | 14 DTO types | 2.8 MB |
+| `.tscn` scenes (16 frontend + 2 root) | 18 | — |
+| `data/*.json` (from Python parsers of the original `.DAT` tables) | 15 files, 14 DTO types | **~473 KB** (v1 said 2.8 MB — wrong) |
 | **Total C#** | **82** | **~25,800** |
 
 ### Largest files
@@ -85,6 +86,16 @@ MissionTableManager (124), FacilityCatalog (124), GalaxyFactory (120), Unit (115
 SideLotteryManager (106), GameMessage (98), EventBus (89), UprisingTable (85),
 plus `backend/Packs/` (347).
 
+### What one strategic day actually calls
+
+`StrategicTickManager.cs:270-347` runs **sixteen** subsystems per day:
+Planet.ProcessDailyTick, Economy, Loyalty, Force, Story, Captivity, Informant,
+AgentDroid, Ai, FleetBattle, Blockade, Smuggling, Repair, Victory, Research, Mission.
+Before the first day, `GameManager.cs:114-177` loads RuleManager, MissionTable,
+MissionCatalog, UprisingTable, SeedManager, FacilityCatalog, GalaxyFactory and runs
+DayZeroGenerator. **"Run one day" therefore means ~10k of the 16k backend lines** —
+which is why step 1 is split in §6.
+
 ### Frontend windows (all must be translated, 18 scenes)
 
 UIManager, FleetWindow, DraggableWindow, EconomyWindow, DefenseWindow, SectorWindow,
@@ -96,28 +107,66 @@ PlanetWindow, TransitConfirmWindow, InGameMenuWindow, Buttons/ (3 files).
 
 ## 4. Construct audit — the translation tax
 
-Grep counts over `backend/`, `frontend/`, root. Two auditors reached the same numbers.
+Grep counts over `backend/`, `frontend/`, root at `11c1b36`.
+
+### 4a. Original audit (verified v2)
 
 | Construct | Hits | Risk | GDScript equivalent |
 |---|---:|---|---|
-| LINQ (`Where/Select/OrderBy/GroupBy/Sum/Any/First/ToList/ToDictionary`) | 421 | **HIGH** (volume) | `filter`/`map`/`sort_custom`/`reduce` or explicit loops. Verbose; each site needs care. |
-| Generic collections (`Dictionary<>/List<>/HashSet<>`) | 352 | MODERATE | `Dictionary`/`Array`. Type safety is lost; use typed arrays where possible. |
-| `System.Text.Json` attributes/options (`JsonPolymorphic`, `JsonPropertyName`, `JsonIgnore`, `JsonConverter`, …) | 43 | **HIGH** | `JSON.parse_string` is native, but polymorphic/attribute-driven mapping must be hand-written per DTO. |
-| `JsonSerializer.Deserialize<T>` call sites | 16 (14 distinct DTO types) | **HIGH** | One dict→object hydration function per DTO type. |
-| C# `event` / `Action<>` / `Func<>` | 49 + 18 | LOW | Godot `signal` / `Callable`. `EventBus.cs` (89 lines) is a typed hub → signals. |
+| LINQ (`Where/Select/OrderBy/GroupBy/Sum/Any/First/ToList/ToDictionary`) | 421 | **HIGH** (volume) | `filter`/`map`/`sort_custom`/`reduce` or explicit loops. |
+| Generic collections (`Dictionary<>/List<>/HashSet<>`) | 352 | MODERATE | `Dictionary`/`Array`; typed arrays where possible. |
+| `System.Text.Json` attributes/options | 43 | **HIGH** | Hand-written per-DTO hydration. |
+| `JsonSerializer.Deserialize<T>` call sites | 15 (14 distinct DTO types) | **HIGH** | One hydration function per DTO type. |
+| C# `event` / `Action<>` / `Func<>` | 49 + 18 | LOW | `signal` / `Callable`. |
 | `record` / `struct` | 5 / 4 | LOW | Plain classes. |
 | `GetNode<T>` | 128 | LOW | `$Path` / `get_node()`. |
 | `[Export]` / `[Signal]` | 15 / 1 | LOW | `@export` / `signal`. |
-| `FileAccess` | 22 | LOW | Same API in GDScript. |
-| `_Process` / `_PhysicsProcess` overrides | 3 | LOW | Same. |
-| `Random` | 1 site | LOW | `RandomNumberGenerator` with seed — determinism is easy to keep. |
+| `FileAccess` | 22 | LOW | Same API. |
+| `_Process` / `_PhysicsProcess` | 3 | LOW | Same. |
+| **`Random`** | **11 constructions, ALL unseeded** (v1 said 1) | **HIGH** | See 4c. Determinism must be **created**, not kept. |
 | `async` / `Task<>` | **0** | none | — |
 | `DllImport` / P/Invoke | **0** | none | — |
 | `System.Reflection` | **0** | none | — |
 | `unsafe` / `Span<>` | **0** | none | — |
 | `ThreadPool` / `Parallel` | **0** | none | — |
 
-**Conclusion: no hard blockers.** The cost is volume (LINQ + DTO hydration), not impossibility.
+### 4b. Omitted from v1 (C3PO's audit — lexical hits, overlapping, not additive)
+
+| Construct | Hits | Risk | Note |
+|---|---:|---|---|
+| **Nullable value declarations** (`int?`, nullable enums/Color, mostly DTO fields) | 66 | **HIGH** | Missing/null must stay distinct from 0/default in hydration — a rules-fidelity bug waiting to happen. Needs parity tests. |
+| **Tuple-keyed dictionaries** (4) + tuple returns/lists/deconstruction | ≥8 | MODERATE | Godot 4.7 Arrays compare and hash by contents, but mutable Array keys can invalidate lookup assumptions. Prefer immutable composite-key strings or value types. |
+| **Static classes** | 39 | **HIGH** (architectural) | Needs the ownership policy in §6 (three buckets) *before* translation. |
+| Null-conditional `?.` / null-coalescing `??` / `??=` | 242 / 198 / 10 | MODERATE | Pervasive default behaviour to preserve. |
+| `out` parameters (21 methods; 191 incl. `TryGetValue`/`TryParse`) | 191 | MODERATE | Result objects or split queries; watch error paths. |
+| Type-pattern `is T x` | 117 | MODERATE | Explicit `is` + cast + temp. |
+| Switch expressions / statements | 43 / 21 | MODERATE | Expression-valued switches need control-flow rewrites. |
+| Interpolated strings | 816 | LOW (volume) | Mechanical; user-visible text. |
+| `=>` tokens (lambdas, expression-bodied members, overlaps LINQ) | 1,065 | LOW (volume) | — |
+| Target-typed `new()` | 99 | LOW | — |
+| Interface `ITransitEntity` (Unit, Fleet; used in generic constraints) | 1 | LOW | Common contract / duck typing + tests. |
+| Inheritance: Character→Unit; Planet/Fleet→Location; windows→DraggableWindow→PanelContainer | shallow | LOW | — |
+| Range/index-from-end, local functions, `init`, `with` | 7 / 6 / 5 / 1 | LOW | — |
+
+**Conclusion (unchanged): no hard blockers.** The cost is volume — roughly 3,000
+more touch points than v1 counted — plus the determinism work in 4c.
+
+### 4c. Random — the eleven sites
+
+| Site | What |
+|---|---|
+| `backend/StrategicTickManager.cs:13` | `_rng = new()` — the main tick RNG, passed to ~40 `ProcessDay`/`Resolve`/`Roll` methods (the one site v1 counted) |
+| `backend/DayZeroGenerator.cs:10` | `rng = new()` — galaxy generation, 27 call sites |
+| `backend/LoyaltyManager.cs:92` | `static _rng = new()` |
+| `backend/Planet.cs:1053` | `static _unrestRng = new()` |
+| `backend/TacticalBattle.cs:845` | `static _shared = new()` |
+| `backend/FleetBattleManager.cs:397` | `new Random()` per battle |
+| `frontend/BattleAlertWindow.cs:144`, `FleetWindow.cs:562`, `FleetWindow.cs:696`, `UIManager.cs:866`, `GameManager.cs:303` | `new System.Random()` at UI call sites |
+
+**The source is not deterministic today.** `System.Random` and Godot's
+`RandomNumberGenerator` are different generators, so even a seeded port would not
+reproduce the C# stream. Same-seed parity (risk 4, step 2 gate) requires a
+hand-written portable PRNG (xorshift or PCG) on **both** sides — see step 0b.
 
 ### DTO types deserialised (each needs a hydration function)
 
@@ -130,49 +179,89 @@ Grep counts over `backend/`, `frontend/`, root. Two auditors reached the same nu
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| 1 | **GDScript on WASM is interpreted, single-threaded, no JIT.** `StrategicTickManager`/`Mission`/`Planet` run ~40 nested loops per strategic tick over all planets. Cost is **unmeasured**. Rough prior: GDScript is 10–50× slower than C# in tight loops. | **CRITICAL** | Vertical-slice gate (§6 step 1) measures it before any schedule is committed. |
+| 1 | **GDScript is bytecode-interpreted, no JIT on any platform; on WASM that stacks on the engine's own WASM overhead.** The Planet/Mission tick is the hot loop. Cost is **unmeasured**. Rough prior: 10–50× slower than C# in tight loops. | **CRITICAL** | Step 1B measures it on a full-production day-zero snapshot over 100 days before any schedule is committed. |
 | 2 | Web threads require SharedArrayBuffer + COOP/COEP headers. | LOW | Source uses 0 threads. Do not introduce any. |
-| 3 | `user://` on web is IndexedDB, async-flushed. | LOW | Source has **no save/load system** (0 `user://` / `SaveGame` hits). Nothing to port; design for it later. |
-| 4 | LINQ→loop translation errors silently change rules. | MODERATE | Keep the Python→JSON data pipeline as the contract; build a headless deterministic test runner and compare one-day outcomes C# vs GDScript on the same seed. |
-| 5 | 2.8 MB JSON + galaxy BMPs in the `.pck`. | LOW | Acceptable for web. |
+| 3 | `user://` on web is IndexedDB, async-flushed. | LOW | Source has **no save/load system** (0 `user://` hits). Nothing to port; design for it later. |
+| 4 | LINQ→loop translation errors silently change rules. | MODERATE | Headless same-seed C# vs GDScript comparison — **depends on step 0b**; impossible against the source as it stands (4c). |
+| 5 | ~473 KB JSON + galaxy BMPs in the `.pck`. | LOW | Acceptable for web. |
 | 6 | Browser audio/input autoplay policies. | LOW | UI only. |
+| 7 | **No snapshot/serialiser exists in the source.** Step 1B needs C# to emit a canonical day-zero state (galaxy, planets, characters, fleets, missions). | MODERATE | New serialiser in the source repo as part of step 0b. Same approval path. |
+| 8 | Hydration drops the null-vs-0 distinction on nullable DTO fields (4b). | MODERATE | Parity tests on every nullable field in step 1A. |
 
-## 6. Next steps (in order — do not skip step 1)
+## 6. Next steps (in order — gates are hard)
 
-| # | Step | Gate |
-|---|---|---|
-| 1 | **Vertical slice.** Create the Godot 4.7 non-Mono project here. Hydrate all 14 DTOs from `data/*.json`. Run **one strategic day** including the hottest `Planet`/`Mission` loop. Minimal galaxy-map UI. **Export to Web** and profile tick time at full production data. | Go/no-go on tick budget. |
-| 2 | Translate remaining `backend/` (~16k lines), subsystem by subsystem, largest-risk first (Mission, Planet, StrategicTick). | Headless deterministic test passes per subsystem. |
-| 3 | Translate `frontend/` (~9k lines, 18 scenes), window by window, **each checked against the manual passage that specifies it**. | Manual element checklist per window. |
-| 4 | Web export of the full game; re-profile. | Playable in browser. |
+| # | Step | Where | Gate |
+|---|---|---|---|
+| **0** | Copy `data/*.json`, `GAMEPLAY.md`, `manual/ILLUSTRATIONS.md` from the source into this repo. Each copied doc gets a first line `<!-- last synced from sol-conflict-revolution commit <sha> -->`. Copy the source `CLAUDE.md` whole and edit only *Repo facts* (§9). | this repo | Files present, sync lines present. |
+| **0b** | **Make the source deterministic.** One seeded, portable PRNG (xorshift or PCG — the same algorithm the GDScript side will implement) routed through all 11 sites in 4c. Add a day-zero snapshot serialiser (JSON). Verify same-seed replay in C# alone: two runs, identical snapshot, identical 100-day log. | **source repo, `tschmitz-dev`** — needs TeeJ's separate go-ahead | Same-seed replay identical in C#. |
+| **1A** | Hydrate all 14 DTOs from `data/*.json` in GDScript. Correctness gate: every field, including nullable-vs-0, matches what the C# side loads. | this repo | Field-level parity report, zero diffs. |
+| **1B** | Hydrate the step-0b snapshot. Run `Planet.ProcessDailyTick` + `Mission.ProcessDay` for 100 days with the other 14 ProcessDay subsystems stubbed to no-ops. Record warm-up separately, then mean / p50 / p95 / max per-day time (and allocations if the profiler exposes them). **Export to Web** and repeat in a browser. | this repo | **Go / no-go on tick budget.** |
+| 2 | Translate remaining `backend/`, subsystem by subsystem, largest-risk first. | this repo | Same-seed parity vs C# passes per subsystem. |
+| 3 | Translate `frontend/` (18 scenes), window by window, **each checked against the manual passage that specifies it**. Owner: C3PO. | this repo | Manual-element checklist per window. |
+| 4 | Web export of the full game; re-profile. | this repo | Playable in browser. |
 
-Recommended practices for the new project (implementation lessons, not architecture):
+### Static-class / autoload policy (adopted — C3PO)
+
+Do **not** turn 39 static classes into 39 autoloads. Three buckets:
+
+1. **Pure/stateless utilities and immutable constants** → `class_name` scripts with static funcs/consts; no autoload.
+2. **Loaded catalogs and mutable per-game managers** → ordinary RefCounted/Resource/Node instances owned by one `GameSession` composition root. This includes Rule/Seed/Facility/Mission/MissionTable catalogs and runtime Economy/EventBus/FleetBattle/Intel/Loyalty/Informant/Repair/Research/Smuggling/Story/Victory/Mission/Force state. EventBus is a `GameSession` child signal hub so teardown starts a truly clean game.
+3. **Autoloads** → at most an application-level SceneRouter/Bootstrap plus persistent user settings. `GameSession` may be an autoload only if scene changes require it, and must expose explicit `new_game`/`reset`/`dispose` and own every per-run dependency.
+
+Gid display definitions may stay a static data script/Resource; `_activeMode` belongs to the instantiated GalaxyMap/Gid controller. GameSettings splits into persistent UserSettings vs per-run GameConfig. Class-by-class mapping is finalised while building 1A/1B.
+
+### Other practices
+
 - Headless, deterministic test runner driven by a fixed seed.
 - Signal-based tick orchestration.
 - Strict JSON error handling and index-building at load.
 - Keep the Python parsers upstream in the source repo; **JSON is the contract**.
 
-## 7. Effort (relative sizing only — NOT a commitment until step 1 passes)
+## 7. Effort
 
-| Phase | Estimate |
+v1's 17–25 days works out to 1,033–1,519 translated lines per day (R2D2) and was
+sized on 421 LINQ hits and 14 DTOs only. It excludes the ~3,000 extra touch points
+in 4b, the determinism refactor and serialiser in 0b, and the 18 manual-element
+checklists in step 3. **It is withdrawn.**
+
+Size only what can be sized now; re-size the rest after 1B's numbers exist.
+
+| Step | Estimate |
 |---|---|
-| Data layer (DTOs, JSON, LINQ→loops) | 3–5 days |
-| Backend logic (Planet/Mission/Fleet engines etc.) | 7–10 days |
-| Frontend UI (30 files, 18 scenes) | 4–6 days |
-| Integration and testing | 3–4 days |
-| **Total** | **17–25 days** |
+| 0 | hours |
+| 0b (source repo) | 2–3 days |
+| 1A | 2–3 days |
+| 1B | 3–4 days |
+| 2, 3, 4 | **not sized until 1B passes** |
 
 ## 8. Unresolved
 
-- Actual GDScript/WASM tick cost — settled by step 1.
+- Actual GDScript/WASM tick cost — settled by 1B.
+- Portable PRNG choice (xorshift vs PCG) — decide at the start of 0b; must be trivially identical on both sides.
 - Hosting/headers for the web build (only matters if threads are ever added).
 
-## 9. Carry-over rules from the source repo
+## 9. CLAUDE.md carry-over
 
-Copy these into this repo's `CLAUDE.md` before writing code:
-1. **The rule AND the implementation both match the manual.** The window, its named fields, the gesture — all are spec.
-2. Never invent a game mechanic. If the sources don't state it, stop and ask.
-3. Research order: `.DAT` tables → `ENCYTEXT.DLL` → manual pages / `GAMEPLAY.md` → community RE → measurement.
-4. Ask before any reverse engineering of `REBEXE.EXE`.
-5. Label every statement as *how the game works* or *what the code does*.
-6. Explicit approval before editing.
+v1 listed six rules. The source has rules 0, 1, 1a, 2, 3, 4, 5, 6, 7, 8 plus
+*Repo facts*; the six dropped rule 5 (report confidence), 6 (never kill the running
+game), 7 (build the whole feature incl. UI, with the GAMEPLAY.md / ILLUSTRATIONS.md
+pointers step 3 depends on), 8 (be brief), rule 1's source table, and reduced
+rule 0 to one line despite calling it verbatim.
+
+**Copy the source `CLAUDE.md` whole.** Edit only *Repo facts*:
+
+| Line | Change |
+|---|---|
+| Engine | Godot 4.7 **non-Mono**, same binary path minus `mono`. Launch via a `run-game` skill for this repo. |
+| Remotes | this repo's own; the source repo rules about `upstream` do not apply here. |
+| Not in the repo | `.DAT` files are not here at all; `data/*.json` **is** here (copied, §6 step 0). `manual/pages/` remains only in the source repo. |
+| Docs | `GAMEPLAY.md` and `manual/ILLUSTRATIONS.md` are copies — check the sync line before trusting them; re-sync from the source when it moves. |
+
+## 10. Work split (TeeJ, 2026-09-02)
+
+| Agent | Share | Scope |
+|---|---|---|
+| Lord Vader | remainder | backend translation, data layer, step 0b, amendments to this document, sync lines and checklist status table |
+| C3PO | ~25% | all UI: step 3 windows vs manual passages, manual-element checklists, autoload mapping |
+
+C3PO reviews Lord Vader's output. R2D2 was removed from the project on 2026-09-02.
