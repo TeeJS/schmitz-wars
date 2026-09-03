@@ -67,7 +67,7 @@ var IonCannonArc: Array[int] = [0, 0, 0, 0]
 var LaserArc: Array[int] = [0, 0, 0, 0]
 
 # --- DAMAGE STATE (PDF p114) --- null means undamaged.
-var Damage: RefCounted = null   # ShipDamage, ported with the combat model (step 2)
+var Damage: ShipDamage = null
 
 # Ground Stats
 var Attack: int
@@ -84,6 +84,14 @@ var Hangar: Array[Unit] = []
 
 func set_Attached(value: Location) -> void:
 	_attached = value
+
+
+## "Ship Damaged: Yes/No" (PDF p114). Null Damage means undamaged - the current
+## value is the design value - so the state object is built on first demand.
+func DamageState() -> ShipDamage:
+	if Damage == null:
+		Damage = ShipDamage.For(self)
+	return Damage
 
 
 func IsDamaged() -> bool:

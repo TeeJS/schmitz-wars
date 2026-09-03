@@ -1,7 +1,8 @@
 class_name StrategicTickManager
 extends RefCounted
 ## backend/StrategicTickManager.cs - one strategic day, in the source's order.
-## The subsystems marked STUB in Stubs are not in the 1B slice (HANDOFF §6).
+## Every subsystem is live (step 2); the order is load-bearing because the PRNG
+## stream depends on it.
 
 var CurrentDay: int = 1
 ## The same day, reachable without a handle on the tick manager.
@@ -62,7 +63,6 @@ func AdvanceDay() -> void:
 			character.DaysToDestination -= 1
 			if character.DaysToDestination <= 0:
 				var destination := character.Destination
-				# A COMMAND IS A POST, AND THEY HAVE LEFT IT - Attached owns that rule.
 				character.Attached = destination
 				character.Destination = null
 				character.Status = Enums.Status.AwaitingOrders
@@ -73,8 +73,7 @@ func AdvanceDay() -> void:
 				msg.Type = Enums.MessageType.PersonnelArrive
 				EventBus.BroadcastMessage(msg)
 
-	# --- PROCESS UNIT MOVEMENT --- collected first and moved after, because
-	# arriving relocates the unit between the very Garrison lists being walked.
+	# --- PROCESS UNIT MOVEMENT --- collected first and moved after.
 	var arriving: Array[Unit] = []
 	for sector in _galaxy:
 		for planet in sector.Planets:
@@ -100,8 +99,7 @@ func AdvanceDay() -> void:
 			u.Attached = destination
 		print("%s has arrived at %s." % [u.Name, destination.Name])
 
-	# --- PROCESS FLEET MOVEMENT --- retire the countdown; ExecuteTransit already
-	# moved the fleet into its destination's orbit list.
+	# --- PROCESS FLEET MOVEMENT ---
 	for sector in _galaxy:
 		for planet in sector.Planets:
 			for fleet in planet.OrbitingFleets:
@@ -131,7 +129,6 @@ func AdvanceDay() -> void:
 						cargo.Attached = landing
 						cargo.Destination = null
 						cargo.Status = Enums.Status.AwaitingOrders
-				# Anyone riding the fleet keeps the FLEET as their anchor (manual p115).
 				for rider in GameState.ActiveRoster:
 					if rider.Attached != fleet:
 						continue
@@ -148,18 +145,18 @@ func AdvanceDay() -> void:
 	for faction in FactionRegistry.Playable:
 		Economy.ProcessDay(faction)
 
-	LoyaltyManager.ProcessDay(_galaxy)                                  # STUB in 1B
-	Stubs.ForceManager.ProcessDay(CurrentDay)                           # STUB
-	Stubs.StoryManager.ProcessDay(CurrentDay, rng)                      # STUB
-	Stubs.CaptivityManager.ProcessDay(_galaxy, CurrentDay, rng)         # STUB
-	Stubs.InformantManager.ProcessDay(_galaxy, CurrentDay, rng)         # STUB
-	Stubs.AgentDroid.ProcessDay(_galaxy, CurrentDay)                    # STUB
-	Stubs.AiManager.ProcessDay(_galaxy, CurrentDay, rng)                # STUB
-	Stubs.FleetBattleManager.ProcessDay(_galaxy, CurrentDay, rng)       # STUB
-	BlockadeManager.ProcessDay(_galaxy, CurrentDay, rng)                # STUB in 1B
-	Stubs.SmugglingManager.ProcessDay(_galaxy, CurrentDay, rng)         # STUB
-	Stubs.RepairManager.ProcessDay(_galaxy, CurrentDay)                 # STUB
-	Stubs.VictoryManager.ProcessDay(_galaxy, CurrentDay)                # STUB
+	LoyaltyManager.ProcessDay(_galaxy)
+	ForceManager.ProcessDay(CurrentDay)
+	StoryManager.ProcessDay(CurrentDay, rng)
+	CaptivityManager.ProcessDay(_galaxy, CurrentDay, rng)
+	InformantManager.ProcessDay(_galaxy, CurrentDay, rng)
+	AgentDroid.ProcessDay(_galaxy, CurrentDay)
+	AiManager.ProcessDay(_galaxy, CurrentDay, rng)
+	FleetBattleManager.ProcessDay(_galaxy, CurrentDay, rng)
+	BlockadeManager.ProcessDay(_galaxy, CurrentDay, rng)
+	SmugglingManager.ProcessDay(_galaxy, CurrentDay, rng)
+	RepairManager.ProcessDay(_galaxy, CurrentDay)
+	VictoryManager.ProcessDay(_galaxy, CurrentDay)
 	ResearchManager.ProcessDay(_galaxy, CurrentDay)
 
 	MissionManager.ProcessDay(rng, CurrentDay)
